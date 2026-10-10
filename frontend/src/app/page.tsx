@@ -10,6 +10,7 @@ type Message = {
   role: string;
   content: string;
   created_at: string;
+  sources?: any[];
 };
 
 type Artifact = {
@@ -304,6 +305,24 @@ export default function Home() {
                     }`}
                   >
                     <div className="whitespace-pre-wrap">{msg.content}</div>
+                    {msg.role === 'assistant' && msg.sources && msg.sources.filter((s: any) => s.type === 'citation').length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-[#334155] space-y-2">
+                        <div className="text-xs font-semibold text-[#94a3b8] uppercase">Sources</div>
+                        <div className="flex flex-col space-y-1">
+                          {msg.sources.filter((s: any) => s.type === 'citation').map((source: any, idx: number) => (
+                            <a 
+                              key={idx}
+                              href={source.source_url || "#"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-[#3b82f6] hover:underline bg-[#0f1115] p-2 rounded truncate border border-[#334155]"
+                            >
+                              {source.episode_title}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

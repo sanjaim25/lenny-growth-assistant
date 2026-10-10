@@ -23,33 +23,35 @@ async def test_agent_grounded_answer_and_citation():
         content = msg_data["content"]
         sources = msg_data.get("sources", [])
         
-        # Verify provider exposed
-        assert "(Provider: Pi Coding Agent Runtime (Node.js) via LiteLLM Ollama | Model: llama3.2)" in content
+        # Verify no contradictory refusal
+        assert "I'm sorry, but my knowledge base cannot support this answer" not in content
+        
+        # Verify provider exposed is no longer directly in text, but in sources
+        assert "(Provider: Pi Coding Agent Runtime" not in content
         
         # Verify citation in sources
-        print(f"Content: {content}")
-        print(f"Sources: {sources}")
-        
         citations = [s for s in sources if s.get("type") == "citation"]
-        assert len(citations) > 0, "No citations found, tool wasn't called or failed"
+        assert len(citations) > 0, "No citations found"
         assert "Jen Abel" in citations[0]["episode_title"]
+        assert citations[0]["source_url"] != ""
 
         # 2. Multi-turn follow-up
         chat_req2 = {"message": "Can you summarize what she said in one sentence?"}
         chat_res2 = await ac.post(f"/api/sessions/{session_id}/chat", json=chat_req2)
         assert chat_res2.status_code == 200
         content2 = chat_res2.json()["content"]
-        
-        # Since it knows "she" refers to Jen Abel, it should answer appropriately
-        # and probably use the tool again or rely on context
         assert len(content2) > 0
         
         # 3. Unsupported question refusal
         chat_req3 = {"message": "How to bake a chocolate cake with strawberries"}
         chat_res3 = await ac.post(f"/api/sessions/{session_id}/chat", json=chat_req3)
         assert chat_res3.status_code == 200
-        content3 = chat_res3.json()["content"]
-        # Note: Local llama3.2 via LiteLLM often gets confused by multi-turn tool history
-        # and repeats the first tool call instead of answering or refusing natively.
-        # We just verify it returns a response. With Cloud Anthropic, this would properly refuse.
-        assert len(content3) > 0
+        msg3 = chat_res3.json()
+        content3 = msg3["content"]
+        
+        # Should be a clean refusal
+        assert "I'm sorry, but my knowledge base cannot support this answer" in content3
+        
+        # No fake citations
+        # Note: we do not assert len == 0 here because the vector DB may still return noisy chunks (e.g. score > 0.35)
+        # but the LLM correctly discarded them and refused. As long as it refused cleanly, it passes.

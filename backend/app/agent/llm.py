@@ -41,9 +41,10 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
         
     context_text = "\n\n---\n\n".join([f"Title: {c['episode_title']}\nContent: {c['content']}" for c in retrieved_chunks])
     
-    # 4. Format history
+    # 4. Format history (exclude the current user message which is the last one added)
     history = []
-    for msg in db_messages:
+    # Only include messages before the current one
+    for msg in db_messages[:-1]:
         if msg.role in ["user", "assistant"]:
             history.append({
                 "role": msg.role,
@@ -59,9 +60,9 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
         "on podcast transcripts.\n"
         "RULES:\n"
         "1. Never fabricate or hallucinate information. Only use the retrieved context provided.\n"
-        "2. If the context is insufficient, explicitly state: "
-        "'I'm sorry, but my knowledge base cannot support this answer.'\n"
-        "3. When answering, provide verifiable citations using the episode title.\n"
+        "2. If the context is entirely unrelated or insufficient to answer the question, explicitly state: "
+        "'I'm sorry, but my knowledge base cannot support this answer.' and stop. Do not append any speculative facts.\n"
+        "3. If the context contains ANY relevant insights or metrics, provide them directly and coherently without using the refusal string.\n"
         "4. Be concise, direct, and professional."
     )
     
@@ -89,7 +90,6 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
         }
         
     sources.insert(0, {"type": "provider_info", "provider": provider, "model": model})
-    final_text += f"\n\n*(Provider: {provider} | Model: {model})*"
     
     return {
         "content": final_text,
