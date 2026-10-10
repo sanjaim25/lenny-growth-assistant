@@ -10,7 +10,7 @@ async def main():
         
         # Request essay
         print("Generating essay...")
-        res = await client.post(f"http://localhost:8000/api/sessions/{session_id}/essay", json={"topic": "How to do enterprise sales", "angle": "A beginner's guide"}, timeout=120)
+        res = await client.post(f"http://localhost:8000/api/sessions/{session_id}/essay", json={"topic": "How to do enterprise sales", "angle": "A beginner's guide"}, timeout=300)
         data = res.json()
         print("Title:", data.get("title"))
         print("Word Count:", data.get("word_count"))

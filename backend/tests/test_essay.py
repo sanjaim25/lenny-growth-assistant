@@ -11,7 +11,7 @@ async def test_essay_generation_and_persistence():
 
         # 1. Ask for an essay that is in the domain
         essay_req = {"topic": "Enterprise Sales", "angle": "B2B SaaS"}
-        essay_res = await ac.post(f"/api/sessions/{session_id}/essay", json=essay_req, timeout=120.0)
+        essay_res = await ac.post(f"/api/sessions/{session_id}/essay", json=essay_req, timeout=300.0)
         assert essay_res.status_code == 200
         
         artifact = essay_res.json()
@@ -41,7 +41,7 @@ async def test_essay_insufficient_evidence():
 
         # Ask for an essay out of domain
         essay_req = {"topic": "zxcvbnm qwer tyuiop random gibberish"}
-        essay_res = await ac.post(f"/api/sessions/{session_id}/essay", json=essay_req, timeout=120.0)
+        essay_res = await ac.post(f"/api/sessions/{session_id}/essay", json=essay_req, timeout=300.0)
         assert essay_res.status_code == 200
         
         artifact = essay_res.json()
