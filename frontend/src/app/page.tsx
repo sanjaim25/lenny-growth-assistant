@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import ArtifactViewer from "../components/ArtifactViewer";
 import WriteEssayModal from "../components/WriteEssayModal";
 import { PenLine } from "lucide-react";
@@ -304,7 +305,9 @@ export default function Home() {
                         : 'bg-[#1e293b] text-[#f8fafc] rounded-bl-none border border-[#334155]'
                     }`}
                   >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
                     {msg.role === 'assistant' && msg.sources && msg.sources.filter((s: any) => s.type === 'citation').length > 0 && (
                       <div className="mt-3 pt-3 border-t border-[#334155] space-y-2">
                         <div className="text-xs font-semibold text-[#94a3b8] uppercase">Sources</div>

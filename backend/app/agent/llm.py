@@ -32,17 +32,18 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
         }
         
     sources = []
-    seen_titles = set()
+    seen_urls = set()
     for chunk in retrieved_chunks:
         title = chunk.get('episode_title')
-        if title and title not in seen_titles:
+        url = chunk.get('source_url', '')
+        if url and url not in seen_urls:
             sources.append({
                 "type": "citation",
-                "episode_title": title,
-                "source_url": chunk.get('source_url', ''),
-                "similarity_score": chunk['similarity_score']
+                "episode_title": title or "Unknown Episode",
+                "source_url": url,
+                "similarity_score": chunk.get('similarity_score', 0)
             })
-            seen_titles.add(title)
+            seen_urls.add(url)
         
     context_text = "\n\n---\n\n".join([f"Title: {c['episode_title']}\nContent: {c['content']}" for c in retrieved_chunks])
     
@@ -121,13 +122,18 @@ async def generate_essay_response(session_id: str, essay_request: Any, db: Async
         }
         
     sources = []
+    seen_urls = set()
     for chunk in retrieved_chunks:
-        sources.append({
-            "type": "citation",
-            "episode_title": chunk['episode_title'],
-            "source_url": chunk['source_url'],
-            "similarity_score": chunk['similarity_score']
-        })
+        url = chunk.get('source_url', '')
+        title = chunk.get('episode_title')
+        if url and url not in seen_urls:
+            sources.append({
+                "type": "citation",
+                "episode_title": title or "Unknown Episode",
+                "source_url": url,
+                "similarity_score": chunk.get('similarity_score', 0)
+            })
+            seen_urls.add(url)
         
     context_text = "\n\n---\n\n".join([f"Title: {c['episode_title']}\nContent: {c['content']}" for c in retrieved_chunks])
     

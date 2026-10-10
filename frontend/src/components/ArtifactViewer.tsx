@@ -117,10 +117,7 @@ export default function ArtifactViewer({
         <div className="p-4 border-t border-[#334155] bg-[#181b21] max-h-48 overflow-y-auto">
           <h3 className="text-xs font-semibold text-[#94a3b8] uppercase mb-2">Sources & Citations</h3>
           <ul className="space-y-1">
-            {artifact.sources.map((s, i) => {
-              if (s.type === 'provider_info') {
-                return <li key={i} className="text-xs text-[#64748b] italic mb-1">{s.provider} | {s.model}</li>;
-              }
+            {artifact.sources.filter(s => s.type !== 'provider_info').map((s, i) => {
               return (
                 <li key={i} className="text-xs text-[#cbd5e1] truncate">
                   <a href={s.source_url || '#'} target="_blank" rel="noopener noreferrer" className="hover:text-[#3b82f6] hover:underline">
