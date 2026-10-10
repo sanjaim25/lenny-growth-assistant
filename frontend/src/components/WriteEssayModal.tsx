@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X } from "lucide-react";
+import { X, PenLine } from "lucide-react";
 
 export default function WriteEssayModal({
   isOpen,
@@ -28,19 +28,33 @@ export default function WriteEssayModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 p-4">
-      <div className="bg-[#1e293b] rounded-xl shadow-xl border border-[#334155] w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-[#334155]">
-          <h2 className="text-lg font-semibold text-white">Write an Essay</h2>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 modal-overlay animate-fade-in-up" style={{ animationDuration: '0.2s' }}>
+      <div 
+        className="rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+      >
+        <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 32, background: 'var(--accent-muted)', color: 'var(--accent)' }}>
+              <PenLine size={16} />
+            </div>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Write an Essay</h2>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1 rounded-md transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
             <X size={20} />
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-5" style={{ background: 'var(--bg-secondary)' }}>
           <div>
-            <label className="block text-sm font-medium text-[#cbd5e1] mb-1">
-              Topic <span className="text-red-400">*</span>
+            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Topic <span style={{ color: 'var(--error)' }}>*</span>
             </label>
             <input
               type="text"
@@ -48,37 +62,67 @@ export default function WriteEssayModal({
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="e.g. Product-led Growth"
-              className="w-full bg-[#0f1115] border border-[#334155] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#3b82f6]"
+              className="w-full text-sm transition-colors duration-200"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-default)')}
             />
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-[#cbd5e1] mb-1">
+            <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
               Angle (Optional)
             </label>
             <input
               type="text"
               value={angle}
               onChange={(e) => setAngle(e.target.value)}
-              placeholder="e.g. From a bootstrapped founder's perspective"
-              className="w-full bg-[#0f1115] border border-[#334155] rounded-lg px-3 py-2 text-white focus:outline-none focus:border-[#3b82f6]"
+              placeholder="e.g. Bootstrapped founder's perspective"
+              className="w-full text-sm transition-colors duration-200"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-default)')}
             />
           </div>
 
-          <div className="pt-2 flex justify-end space-x-3">
+          <div className="pt-2 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg font-medium text-[#94a3b8] hover:text-white hover:bg-[#334155] transition-colors"
+              className="px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={{ color: 'var(--text-secondary)', border: '1px solid var(--border-default)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!topic.trim()}
-              className="px-4 py-2 rounded-lg font-medium bg-[#3b82f6] hover:bg-[#2563eb] text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                background: topic.trim() ? 'var(--accent)' : 'var(--bg-tertiary)',
+                color: topic.trim() ? '#fff' : 'var(--text-tertiary)',
+                cursor: topic.trim() ? 'pointer' : 'not-allowed',
+              }}
+              onMouseEnter={e => topic.trim() && (e.currentTarget.style.background = 'var(--accent-hover)')}
+              onMouseLeave={e => topic.trim() && (e.currentTarget.style.background = 'var(--accent)')}
             >
-              Generate
+              Generate Essay
             </button>
           </div>
         </form>

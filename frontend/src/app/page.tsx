@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import ArtifactViewer from "../components/ArtifactViewer";
 import WriteEssayModal from "../components/WriteEssayModal";
 import WriteHtmlModal from "../components/WriteHtmlModal";
-import { PenLine, Code } from "lucide-react";
+import { PenLine, Code, Plus, Trash2, MessageSquare, Sparkles, Send, AlertCircle, FileText, LayoutDashboard } from "lucide-react";
 
 type Message = {
   id: string;
   role: string;
   content: string;
   created_at: string;
-  sources?: any[];
+  sources?: Array<{type: string, source_url?: string, episode_title?: string}>;
+  isOptimistic?: boolean;
 };
 
 type Artifact = {
@@ -41,13 +42,37 @@ export default function Home() {
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isEssayModalOpen, setIsEssayModalOpen] = useState(false);
   const [isHtmlModalOpen, setIsHtmlModalOpen] = useState(false);
+  const [sendingLock, setSendingLock] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  const fetchSessions = async () => {
+  // Elapsed time tracker for loading feedback
+  useEffect(() => {
+    if (loading) {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [loading]);
+
+  const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/sessions`);
       if (res.ok) {
@@ -57,56 +82,67 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to fetch sessions", e);
     }
-  };
+  }, [API_URL]);
 
-  const fetchSessionDetails = async (id: string) => {
+  // Fetch session details but PRESERVE any existing optimistic messages
+  const fetchSessionDetails = useCallback(async (id: string, preserveOptimistic = false) => {
     try {
       const res = await fetch(`${API_URL}/api/sessions/${id}`);
       if (res.ok) {
         const data = await res.json();
-        setMessages(data.messages || []);
-        setArtifacts(data.artifacts || []);
+        const serverMessages: Message[] = data.messages || [];
+        const serverArtifacts: Artifact[] = data.artifacts || [];
+
+        if (preserveOptimistic) {
+          // Merge: keep optimistic messages that aren't yet in server response
+          setMessages(prev => {
+            const serverIds = new Set(serverMessages.map(m => m.id));
+            const optimisticToKeep = prev.filter(m => m.isOptimistic && !serverIds.has(m.id));
+            return [...serverMessages, ...optimisticToKeep];
+          });
+        } else {
+          setMessages(serverMessages);
+        }
+        setArtifacts(serverArtifacts);
       }
     } catch (e) {
       console.error("Failed to fetch session details", e);
     }
-  };
+  }, [API_URL]);
 
   useEffect(() => {
     fetchSessions();
-  }, []);
+  }, [fetchSessions]);
 
   useEffect(() => {
     if (currentSessionId) {
-      fetchSessionDetails(currentSessionId);
-      // Don't auto-clear artifact if we just switch, or do clear it.
+      // Only fetch details for real (non-temp) sessions
+      if (!currentSessionId.startsWith("temp-")) {
+        fetchSessionDetails(currentSessionId, true);
+      }
       setActiveArtifact(null);
     } else {
       setMessages([]);
       setArtifacts([]);
       setActiveArtifact(null);
     }
-  }, [currentSessionId]);
+  }, [currentSessionId, fetchSessionDetails]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
-  const handleNewChat = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentSessionId(data.id);
-        fetchSessions();
-      }
-    } catch (e) {
-      console.error("Failed to create new chat", e);
-    }
+  // ---------- Session management ----------
+
+  const handleNewChat = () => {
+    // Instantly open an empty chat with a client-side temp ID
+    setCurrentSessionId(null);
+    setMessages([]);
+    setArtifacts([]);
+    setActiveArtifact(null);
+    setError(null);
+    // Focus the input for immediate typing
+    setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   const handleDeleteChat = async (id: string, e: React.MouseEvent) => {
@@ -122,8 +158,11 @@ export default function Home() {
     }
   };
 
-  const getOrCreateSession = async () => {
-    if (currentSessionId) return currentSessionId;
+  // Create a real backend session, returning the ID
+  const ensureSession = async (): Promise<string | null> => {
+    if (currentSessionId && !currentSessionId.startsWith("temp-")) {
+      return currentSessionId;
+    }
     try {
       const res = await fetch(`${API_URL}/api/sessions`, {
         method: "POST",
@@ -132,303 +171,615 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
+        // Update session ID without triggering a full refetch that wipes messages
         setCurrentSessionId(data.id);
-        await fetchSessions();
+        fetchSessions();
         return data.id;
       }
     } catch (err) {
-      console.error("Failed to auto-create session", err);
+      console.error("Failed to create session", err);
     }
     return null;
   };
 
+  // ---------- Chat send ----------
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || sendingLock) return;
 
-    const sessionId = await getOrCreateSession();
-    if (!sessionId) return;
-
-    const userMessage = inputText;
+    const userMessage = inputText.trim();
     setInputText("");
-    
-    setMessages(prev => [...prev, {
-      id: "temp-" + Date.now(),
+    setError(null);
+    setSendingLock(true);
+
+    // Step 1: Immediately display the user's message (optimistic)
+    const optimisticMsg: Message = {
+      id: "optimistic-" + Date.now(),
       role: "user",
       content: userMessage,
-      created_at: new Date().toISOString()
-    }]);
-
+      created_at: new Date().toISOString(),
+      isOptimistic: true,
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
     setLoading(true);
-    
+
     try {
+      // Step 2: Ensure we have a real backend session
+      const sessionId = await ensureSession();
+      if (!sessionId) {
+        setError("Could not create a chat session. Check backend connectivity.");
+        setLoading(false);
+        setSendingLock(false);
+        return;
+      }
+
+      // Step 3: Send the message
       const res = await fetch(`${API_URL}/api/sessions/${sessionId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMessage }),
       });
-      
+
       if (res.ok) {
-        await fetchSessionDetails(sessionId);
+        // Step 4: Refresh messages from server — replace optimistic with real data
+        await fetchSessionDetails(sessionId, false);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.detail || `Server error (${res.status})`);
       }
     } catch (err) {
       console.error("Failed to send message", err);
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
+      setSendingLock(false);
     }
   };
 
+  // ---------- Essay & HTML generation ----------
+
   const handleWriteEssay = async (topic: string, angle: string) => {
-    const sessionId = await getOrCreateSession();
-    if (!sessionId) return;
+    setError(null);
+    setSendingLock(true);
 
-    setMessages(prev => [...prev, {
-      id: "temp-" + Date.now(),
+    const optimisticMsg: Message = {
+      id: "optimistic-" + Date.now(),
       role: "user",
-      content: `Write an essay about: ${topic}${angle ? ` with angle: ${angle}` : ''}`,
-      created_at: new Date().toISOString()
-    }]);
-
+      content: `📝 Write an essay about: ${topic}${angle ? ` (angle: ${angle})` : ''}`,
+      created_at: new Date().toISOString(),
+      isOptimistic: true,
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
     setLoading(true);
 
     try {
+      const sessionId = await ensureSession();
+      if (!sessionId) {
+        setError("Could not create a session.");
+        setLoading(false);
+        setSendingLock(false);
+        return;
+      }
+
       const res = await fetch(`${API_URL}/api/sessions/${sessionId}/essay`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, angle }),
       });
-      
+
       if (res.ok) {
         const artifactData = await res.json();
-        await fetchSessionDetails(sessionId);
+        await fetchSessionDetails(sessionId, false);
         setActiveArtifact(artifactData);
+      } else {
+        setError("Essay generation failed. Try again.");
       }
     } catch (err) {
       console.error("Failed to generate essay", err);
+      setError("Network error during essay generation.");
     } finally {
       setLoading(false);
+      setSendingLock(false);
     }
   };
 
   const handleGenerateHtml = async (prompt: string) => {
-    const sessionId = await getOrCreateSession();
-    if (!sessionId) return;
+    setError(null);
+    setSendingLock(true);
 
-    setMessages(prev => [...prev, {
-      id: "temp-" + Date.now(),
+    const optimisticMsg: Message = {
+      id: "optimistic-" + Date.now(),
       role: "user",
-      content: prompt,
-      created_at: new Date().toISOString()
-    }]);
-
+      content: `🎨 Generate HTML/CSS: ${prompt}`,
+      created_at: new Date().toISOString(),
+      isOptimistic: true,
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
     setLoading(true);
 
     try {
+      const sessionId = await ensureSession();
+      if (!sessionId) {
+        setError("Could not create a session.");
+        setLoading(false);
+        setSendingLock(false);
+        return;
+      }
+
       const res = await fetch(`${API_URL}/api/sessions/${sessionId}/html`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: prompt }),
       });
-      
+
       if (res.ok) {
         const artifactData = await res.json();
-        await fetchSessionDetails(sessionId);
+        await fetchSessionDetails(sessionId, false);
         setActiveArtifact(artifactData);
+      } else {
+        setError("HTML generation failed. Try again.");
       }
     } catch (err) {
       console.error("Failed to generate HTML", err);
+      setError("Network error during HTML generation.");
     } finally {
       setLoading(false);
+      setSendingLock(false);
     }
   };
 
+  // ---------- Session switching ----------
+
+  const handleSelectSession = (id: string) => {
+    if (id === currentSessionId) return;
+    setError(null);
+    setCurrentSessionId(id);
+  };
+
+  // ---------- Loading status text ----------
+
+  const getLoadingText = () => {
+    if (elapsedSeconds < 3) return "Lenny is thinking…";
+    if (elapsedSeconds < 8) return "Searching knowledge base…";
+    if (elapsedSeconds < 15) return "Generating response…";
+    if (elapsedSeconds < 30) return `Still working… (${elapsedSeconds}s)`;
+    return `Taking longer than usual… (${elapsedSeconds}s)`;
+  };
+
+  // ---------- Render ----------
+
+  const hasActiveChat = currentSessionId !== null || messages.length > 0;
+
   return (
-    <main className="flex h-screen bg-[#0f1115] text-[#f8fafc] font-sans overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-64 bg-[#181b21] border-r border-[#334155] flex flex-col flex-shrink-0 z-10">
-        <div className="p-4 border-b border-[#334155]">
-          <h1 className="text-xl font-bold text-[#3b82f6] mb-4">Lenny Assistant</h1>
-          <div className="flex space-x-2">
-            <button 
-              onClick={handleNewChat}
-              className="flex-1 bg-[#3b82f6] hover:bg-[#2563eb] text-white font-medium py-2 px-2 rounded transition-colors text-sm text-center"
+    <main className="flex h-screen overflow-hidden" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+
+      {/* ── Sidebar ── */}
+      <aside
+        className="flex flex-col flex-shrink-0 h-full"
+        style={{
+          width: '260px',
+          background: 'var(--bg-secondary)',
+          borderRight: '1px solid var(--border-subtle)',
+        }}
+      >
+        {/* Logo + New Chat */}
+        <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center gap-2 mb-4">
+            <div
+              className="flex items-center justify-center rounded-lg"
+              style={{ width: 32, height: 32, background: 'var(--accent-muted)' }}
             >
-              + New Chat
-            </button>
-            <button 
-              onClick={() => setIsEssayModalOpen(true)}
-              className="bg-[#1e293b] hover:bg-[#334155] border border-[#3b82f6] text-[#3b82f6] font-medium py-2 px-3 rounded transition-colors"
-              title="Write Essay"
-            >
-              <PenLine size={18} />
-            </button>
-            <button 
-              onClick={() => setIsHtmlModalOpen(true)}
-              className="bg-[#1e293b] hover:bg-[#334155] border border-[#3b82f6] text-[#3b82f6] font-medium py-2 px-3 rounded transition-colors"
-              title="Generate HTML UI"
-            >
-              <Code size={18} />
-            </button>
+              <Sparkles size={18} style={{ color: 'var(--accent)' }} />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Lenny Growth</h1>
+              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>AI Assistant</p>
+            </div>
           </div>
+
+          <button
+            onClick={handleNewChat}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+            style={{
+              background: 'var(--accent)',
+              color: '#fff',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
+          >
+            <Plus size={16} />
+            New Chat
+          </button>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+
+        {/* Action Buttons */}
+        <div className="flex gap-2" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <button
+            onClick={() => setIsEssayModalOpen(true)}
+            className="flex items-center gap-1.5 flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-subtle)',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <PenLine size={14} />
+            Essay
+          </button>
+          <button
+            onClick={() => setIsHtmlModalOpen(true)}
+            className="flex items-center gap-1.5 flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-all duration-200"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-subtle)',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <Code size={14} />
+            HTML
+          </button>
+        </div>
+
+        {/* Session List */}
+        <div className="flex-1 overflow-y-auto" style={{ padding: '8px' }}>
+          <div className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)', padding: '4px 8px' }}>
+            Conversations
+          </div>
           {sessions.map(session => (
-            <div 
+            <div
               key={session.id}
-              onClick={() => setCurrentSessionId(session.id)}
-              className={`group flex flex-col justify-center p-3 cursor-pointer rounded transition-colors ${
-                currentSessionId === session.id ? 'bg-[#334155]' : 'hover:bg-[#1e293b]'
-              }`}
+              onClick={() => handleSelectSession(session.id)}
+              className="group flex items-center gap-2 py-2.5 px-3 rounded-lg cursor-pointer transition-all duration-150 mb-0.5"
+              style={{
+                background: currentSessionId === session.id ? 'var(--accent-muted)' : 'transparent',
+                color: currentSessionId === session.id ? 'var(--accent-hover)' : 'var(--text-secondary)',
+              }}
+              onMouseEnter={e => {
+                if (currentSessionId !== session.id) {
+                  e.currentTarget.style.background = 'var(--bg-tertiary)';
+                }
+              }}
+              onMouseLeave={e => {
+                if (currentSessionId !== session.id) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
             >
-              <div className="flex items-center justify-between">
-                <div className="truncate text-sm pr-2">
-                  {session.title}
-                </div>
-                <button 
-                  onClick={(e) => handleDeleteChat(session.id, e)}
-                  className="opacity-0 group-hover:opacity-100 text-[#94a3b8] hover:text-red-400 transition-opacity"
-                  title="Delete Chat"
-                >
-                  ×
-                </button>
-              </div>
+              <MessageSquare size={14} className="flex-shrink-0" style={{ opacity: 0.6 }} />
+              <span className="flex-1 truncate text-sm">{session.title}</span>
+              <button
+                onClick={(e) => handleDeleteChat(session.id, e)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 p-1 rounded"
+                style={{ color: 'var(--text-tertiary)' }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+                title="Delete Chat"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           ))}
           {sessions.length === 0 && (
-            <div className="p-4 text-center text-sm text-[#64748b]">
-              No chats yet.
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--text-tertiary)' }}>
+              No conversations yet
             </div>
           )}
         </div>
-        
-        {/* Artifacts inside active session */}
+
+        {/* Artifacts Section */}
         {artifacts.length > 0 && (
-          <div className="border-t border-[#334155] p-2">
-            <div className="text-xs font-semibold text-[#94a3b8] uppercase px-2 mb-2">Artifacts</div>
-            <div className="space-y-1 max-h-48 overflow-y-auto">
+          <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '8px' }}>
+            <div className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)', padding: '4px 8px' }}>
+              Artifacts
+            </div>
+            <div className="space-y-0.5 max-h-40 overflow-y-auto">
               {artifacts.map(a => (
-                <div 
+                <div
                   key={a.id}
                   onClick={() => setActiveArtifact(a)}
-                  className={`flex items-center p-2 cursor-pointer rounded text-sm transition-colors ${
-                    activeArtifact?.id === a.id ? 'bg-[#3b82f6] text-white' : 'hover:bg-[#1e293b] text-[#cbd5e1]'
-                  }`}
+                  className="flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer text-sm transition-all duration-150"
+                  style={{
+                    background: activeArtifact?.id === a.id ? 'var(--accent-muted)' : 'transparent',
+                    color: activeArtifact?.id === a.id ? 'var(--accent-hover)' : 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={e => {
+                    if (activeArtifact?.id !== a.id) e.currentTarget.style.background = 'var(--bg-tertiary)';
+                  }}
+                  onMouseLeave={e => {
+                    if (activeArtifact?.id !== a.id) e.currentTarget.style.background = 'transparent';
+                  }}
                 >
+                  {a.artifact_type === 'html' ? <LayoutDashboard size={14} /> : <FileText size={14} />}
                   <span className="truncate">{a.title || "Untitled"}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
-      </div>
+      </aside>
 
-      {/* Main Chat Area */}
-      <div className={`flex-1 flex flex-col relative h-full transition-all duration-300`}>
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-[#64748b]">
-              <div className="text-2xl mb-2">👋</div>
-              <p>Ask a question or click the pen icon to write an essay.</p>
+      {/* ── Main Chat Area ── */}
+      <div className="flex-1 flex flex-col h-full relative" style={{ minWidth: 0 }}>
+
+        {/* Message Area */}
+        <div className="flex-1 overflow-y-auto" style={{ padding: '24px 16px' }}>
+          {!hasActiveChat ? (
+            /* Empty / Welcome State */
+            <div className="h-full flex flex-col items-center justify-center" style={{ maxWidth: '520px', margin: '0 auto' }}>
+              <div
+                className="flex items-center justify-center rounded-2xl mb-6"
+                style={{ width: 64, height: 64, background: 'var(--accent-muted)' }}
+              >
+                <Sparkles size={28} style={{ color: 'var(--accent)' }} />
+              </div>
+              <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                What can I help you with?
+              </h2>
+              <p className="text-sm text-center mb-8" style={{ color: 'var(--text-tertiary)', lineHeight: '1.6' }}>
+                Ask questions grounded in Lenny&apos;s Podcast transcripts, generate essays in the Ship 30 for 30 format, or create HTML/CSS dashboards.
+              </p>
+              <div className="grid grid-cols-2 gap-3 w-full">
+                {[
+                  { label: "Enterprise sales strategy", icon: "💼" },
+                  { label: "Product-led growth tactics", icon: "🚀" },
+                  { label: "Write an essay on PLG", icon: "📝" },
+                  { label: "User onboarding best practices", icon: "🎯" },
+                ].map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (item.label.startsWith("Write an essay")) {
+                        setIsEssayModalOpen(true);
+                      } else {
+                        setInputText(item.label);
+                        inputRef.current?.focus();
+                      }
+                    }}
+                    className="flex items-center gap-2 py-3 px-4 rounded-xl text-sm text-left transition-all duration-200"
+                    style={{
+                      background: 'var(--bg-tertiary)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-secondary)',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = 'var(--accent)';
+                      e.currentTarget.style.background = 'var(--bg-elevated)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                      e.currentTarget.style.background = 'var(--bg-tertiary)';
+                    }}
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="max-w-3xl mx-auto space-y-6 pb-20">
-              {messages.map((msg, i) => (
-                <div 
-                  key={msg.id || i}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div 
-                    className={`max-w-[85%] rounded-2xl px-5 py-3 ${
-                      msg.role === 'user' 
-                        ? 'bg-[#3b82f6] text-white rounded-br-none' 
-                        : 'bg-[#1e293b] text-[#f8fafc] rounded-bl-none border border-[#334155]'
-                    }`}
-                  >
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                    {msg.role === 'assistant' && msg.sources && msg.sources.filter((s: any) => s.type === 'citation').length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-[#334155] space-y-2">
-                        <div className="text-xs font-semibold text-[#94a3b8] uppercase">Sources</div>
-                        <div className="flex flex-col space-y-1">
-                          {msg.sources.filter((s: any) => s.type === 'citation').map((source: any, idx: number) => (
-                            <a 
-                              key={idx}
-                              href={source.source_url || "#"}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-[#3b82f6] hover:underline bg-[#0f1115] p-2 rounded truncate border border-[#334155]"
-                            >
-                              {source.episode_title}
-                            </a>
-                          ))}
+            /* Messages List */
+            <div style={{ maxWidth: '768px', margin: '0 auto' }}>
+              {messages.length === 0 && !loading && (
+                <div className="h-full flex flex-col items-center justify-center py-20">
+                  <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                    Start a conversation…
+                  </p>
+                </div>
+              )}
+              <div className="space-y-1">
+                {messages.map((msg) => (
+                  <div key={msg.id} className="animate-fade-in-up" style={{ padding: '8px 0' }}>
+                    {msg.role === 'user' ? (
+                      /* User Message */
+                      <div className="flex justify-end">
+                        <div
+                          className="user-prose chat-prose"
+                          style={{
+                            maxWidth: '80%',
+                            background: 'var(--user-bubble)',
+                            color: 'var(--user-bubble-text)',
+                            padding: '12px 18px',
+                            borderRadius: '18px 18px 4px 18px',
+                            opacity: msg.isOptimistic ? 0.85 : 1,
+                          }}
+                        >
+                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Assistant Message */
+                      <div className="flex justify-start gap-3">
+                        <div
+                          className="flex-shrink-0 flex items-start justify-center rounded-full mt-1"
+                          style={{ width: 28, height: 28, background: 'var(--accent-muted)' }}
+                        >
+                          <Sparkles size={14} style={{ color: 'var(--accent)', marginTop: '7px' }} />
+                        </div>
+                        <div style={{ maxWidth: '85%', minWidth: 0 }}>
+                          <div
+                            className="chat-prose"
+                            style={{
+                              background: 'var(--bg-tertiary)',
+                              border: '1px solid var(--border-subtle)',
+                              padding: '14px 18px',
+                              borderRadius: '4px 18px 18px 18px',
+                            }}
+                          >
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+
+                          {/* Citation Chips */}
+                          {msg.sources && msg.sources.filter((s: {type: string, source_url?: string, episode_title?: string}) => s.type === 'citation').length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {msg.sources.filter((s: {type: string, source_url?: string, episode_title?: string}) => s.type === 'citation').map((source: {type: string, source_url?: string, episode_title?: string}, idx: number) => (
+                                <a
+                                  key={idx}
+                                  href={source.source_url || "#"}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs py-1.5 px-3 rounded-full transition-all duration-200 truncate"
+                                  style={{
+                                    background: 'var(--accent-muted)',
+                                    color: 'var(--accent-hover)',
+                                    border: '1px solid transparent',
+                                    maxWidth: '280px',
+                                  }}
+                                  onMouseEnter={e => {
+                                    e.currentTarget.style.borderColor = 'var(--accent)';
+                                    e.currentTarget.style.background = 'rgba(99,102,241,0.2)';
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.borderColor = 'transparent';
+                                    e.currentTarget.style.background = 'var(--accent-muted)';
+                                  }}
+                                >
+                                  <FileText size={11} />
+                                  {source.episode_title}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
                   </div>
-                </div>
-              ))}
-              {loading && (
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-2xl px-5 py-3 bg-[#1e293b] text-[#f8fafc] rounded-bl-none border border-[#334155]">
-                    <div className="flex space-x-1 items-center h-5">
-                      <div className="w-2 h-2 bg-[#94a3b8] rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-[#94a3b8] rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                      <div className="w-2 h-2 bg-[#94a3b8] rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                ))}
+
+                {/* Thinking Indicator */}
+                {loading && (
+                  <div className="animate-fade-in-up" style={{ padding: '8px 0' }}>
+                    <div className="flex justify-start gap-3">
+                      <div
+                        className="flex-shrink-0 flex items-start justify-center rounded-full mt-1 glow-pulse"
+                        style={{ width: 28, height: 28, background: 'var(--accent-muted)' }}
+                      >
+                        <Sparkles size={14} style={{ color: 'var(--accent)', marginTop: '7px' }} />
+                      </div>
+                      <div
+                        style={{
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--border-subtle)',
+                          padding: '14px 18px',
+                          borderRadius: '4px 18px 18px 18px',
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex gap-1">
+                            <div className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+                            <div className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+                            <div className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+                          </div>
+                          <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                            {getLoadingText()}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
+                )}
+              </div>
+              <div ref={messagesEndRef} style={{ height: '80px' }} />
             </div>
           )}
         </div>
 
+        {/* Error Banner */}
+        {error && (
+          <div
+            className="flex items-center gap-2 text-sm mx-auto animate-fade-in-up"
+            style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: 'var(--error)',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              maxWidth: '768px',
+              width: '100%',
+              marginBottom: '8px',
+            }}
+          >
+            <AlertCircle size={16} />
+            <span className="flex-1">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-xs underline"
+              style={{ color: 'var(--text-tertiary)' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Input Area */}
-        <div className="p-4 bg-[#0f1115] border-t border-[#334155]">
-          <form onSubmit={handleSend} className="max-w-3xl mx-auto relative">
+        <div style={{ padding: '12px 16px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+          <form
+            onSubmit={handleSend}
+            className="relative mx-auto"
+            style={{ maxWidth: '768px' }}
+          >
             <input
+              ref={inputRef}
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Ask Lenny..."
-              disabled={loading}
-              className="w-full bg-[#181b21] border border-[#334155] rounded-xl px-4 py-4 pr-12 focus:outline-none focus:border-[#3b82f6] focus:ring-1 focus:ring-[#3b82f6] transition-all disabled:opacity-50"
+              placeholder={loading ? "Waiting for response…" : "Ask Lenny anything…"}
+              disabled={sendingLock}
+              className="w-full text-sm transition-all duration-200"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '14px',
+                padding: '14px 52px 14px 18px',
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-default)')}
             />
-            <button 
+            <button
               type="submit"
-              disabled={!inputText.trim() || loading}
-              className="absolute right-3 top-3 bottom-3 px-3 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={!inputText.trim() || sendingLock}
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center rounded-xl transition-all duration-200"
+              style={{
+                width: 36,
+                height: 36,
+                background: inputText.trim() && !sendingLock ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: inputText.trim() && !sendingLock ? '#fff' : 'var(--text-tertiary)',
+                cursor: inputText.trim() && !sendingLock ? 'pointer' : 'not-allowed',
+              }}
             >
-              ↑
+              <Send size={16} />
             </button>
           </form>
-          <div className="text-center text-xs text-[#64748b] mt-3">
-            Grounded Q&A and Ship 30 for 30 Essay Generation available.
-          </div>
+          <p className="text-center text-xs mt-2.5" style={{ color: 'var(--text-tertiary)' }}>
+            Grounded in Lenny&apos;s Podcast transcripts · RAG Q&amp;A · Essays · HTML artifacts
+          </p>
         </div>
       </div>
 
-      {/* Artifact Viewer Pane */}
+      {/* ── Artifact Viewer Pane ── */}
       {activeArtifact && (
-        <ArtifactViewer 
-          artifact={activeArtifact} 
-          onClose={() => setActiveArtifact(null)} 
+        <ArtifactViewer
+          artifact={activeArtifact}
+          onClose={() => setActiveArtifact(null)}
         />
       )}
 
-      {/* Modals */}
-      <WriteEssayModal 
-        isOpen={isEssayModalOpen} 
-        onClose={() => setIsEssayModalOpen(false)} 
-        onSubmit={handleWriteEssay} 
+      {/* ── Modals ── */}
+      <WriteEssayModal
+        isOpen={isEssayModalOpen}
+        onClose={() => setIsEssayModalOpen(false)}
+        onSubmit={handleWriteEssay}
       />
-      <WriteHtmlModal 
-        isOpen={isHtmlModalOpen} 
-        onClose={() => setIsHtmlModalOpen(false)} 
-        onSubmit={handleGenerateHtml} 
+      <WriteHtmlModal
+        isOpen={isHtmlModalOpen}
+        onClose={() => setIsHtmlModalOpen(false)}
+        onSubmit={handleGenerateHtml}
       />
     </main>
   );
