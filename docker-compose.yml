@@ -1,0 +1,86 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: lenny-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: growth_assistant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d growth_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lenny-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    environment:
+      - LITELLM_URL=http://litellm:4000
+    # In order to let the backend reach host.docker.internal on linux docker engine, extra_hosts may be needed
+    # (On Docker Desktop for Mac/Windows, it's usually automatic)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Command creates the tables using alembic on startup and then runs uvicorn
+    command: >
+      bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  agent-service:
+    build:
+      context: ./backend/agent_service
+    container_name: agent-service
+    environment:
+      - PORT=3001
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - OPENAI_BASE_URL=http://litellm:4000
+      - OPENAI_API_KEY=${LITELLM_MASTER_KEY}
+    depends_on:
+      - litellm
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lenny-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    ports:
+      - "4000:4000"
+    command: [ "--config", "/app/config.yaml" ]
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/litellm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  pgdata:
