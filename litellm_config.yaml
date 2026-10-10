@@ -3,3 +3,4 @@ model_list:
     litellm_params:
       model: ollama/llama3.2
       api_base: http://host.docker.internal:11434
+      num_ctx: 8192

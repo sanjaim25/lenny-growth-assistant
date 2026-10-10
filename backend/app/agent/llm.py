@@ -21,7 +21,8 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
     query = user_message
     
     # We use a slightly lower threshold for user questions to be safe, but default is 0.5
-    retrieved_chunks = await retrieve_relevant_chunks(query, db, top_k=5, similarity_threshold=0.35)
+    # We use top_k=3 to ensure the context stays under Llama 3.2's default 2048 token window
+    retrieved_chunks = await retrieve_relevant_chunks(query, db, top_k=3, similarity_threshold=0.35)
     
     # 3. Handle Empty Retrieval
     if not retrieved_chunks:
@@ -31,13 +32,17 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
         }
         
     sources = []
+    seen_titles = set()
     for chunk in retrieved_chunks:
-        sources.append({
-            "type": "citation",
-            "episode_title": chunk['episode_title'],
-            "source_url": chunk['source_url'],
-            "similarity_score": chunk['similarity_score']
-        })
+        title = chunk.get('episode_title')
+        if title and title not in seen_titles:
+            sources.append({
+                "type": "citation",
+                "episode_title": title,
+                "source_url": chunk.get('source_url', ''),
+                "similarity_score": chunk['similarity_score']
+            })
+            seen_titles.add(title)
         
     context_text = "\n\n---\n\n".join([f"Title: {c['episode_title']}\nContent: {c['content']}" for c in retrieved_chunks])
     
@@ -56,14 +61,9 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
     model = "llama3.2"
     
     system_prompt = (
-        "You are 'The Lenny Growth Assistant', a highly capable AI assistant that answers questions based "
-        "on podcast transcripts.\n"
-        "RULES:\n"
-        "1. Never fabricate or hallucinate information. Only use the retrieved context provided.\n"
-        "2. If the context is entirely unrelated or insufficient to answer the question, explicitly state: "
-        "'I'm sorry, but my knowledge base cannot support this answer.' and stop. Do not append any speculative facts.\n"
-        "3. If the context contains ANY relevant insights or metrics, provide them directly and coherently without using the refusal string.\n"
-        "4. Be concise, direct, and professional."
+        "You are a Q&A assistant. Answer the user's question using the provided context and conversation history.\n"
+        "If the provided context and history are completely irrelevant to the user's question, say 'I'm sorry, but my knowledge base cannot support this answer.'\n"
+        "Otherwise, extract any relevant insights and provide the best answer you can."
     )
     
     try:
@@ -88,6 +88,10 @@ async def generate_chat_response(session_id: str, user_message: str, db: AsyncSe
             "content": f"I encountered an error connecting to the AI provider ({provider}). Please try again later.",
             "sources": [{"provider": provider, "model": model, "error": str(e)}]
         }
+        
+    # Clear citations if the model refused
+    if "knowledge base cannot support" in final_text.lower() or "unfortunately" in final_text.lower():
+        sources = []
         
     sources.insert(0, {"type": "provider_info", "provider": provider, "model": model})
     

@@ -21,7 +21,7 @@ app.post('/synthesize', async (req, res) => {
   const agent = new Agent({
     initialState: {
       systemPrompt: systemPrompt + "\n\nContext:\n" + context,
-      model: customModel,
+      model: { ...customModel, temperature: 0 },
     },
     streamFn: stream,
   });
