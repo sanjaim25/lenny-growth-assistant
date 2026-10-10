@@ -58,9 +58,11 @@ The assignment requires using the **Anthropic Claude Agent SDK** or **Pi Coding 
 We implemented the official **Pi Coding Agent SDK** via a Node.js sidecar service.
 
 **Our Solution:** 
-We run a **LiteLLM proxy** container alongside our backend. LiteLLM exposes an OpenAI-compatible API endpoint that translates incoming Pi Agent SDK calls into Ollama API calls. 
-- The Node service configures the OpenAI base URL to point to the LiteLLM proxy when in local mode.
-- This creates an honest, testable architecture that fully satisfies both requirements without hacking the SDK.
+We run a **LiteLLM proxy** container alongside our backend. LiteLLM exposes an OpenAI-compatible API endpoint that translates incoming Pi Agent SDK calls into Ollama API calls or forwards them to cloud providers. 
+- The Node service initializes the official `createAgentSession` runtime.
+- The Node service dynamically configures its target model based on the `MODEL_ID` environment variable.
+- LiteLLM routes `gpt-4o-mini` and `local-llama` to the local Ollama instance (`llama3.2`), and `claude-3-5-sonnet` to Anthropic.
+- This creates an honest, testable architecture that fully satisfies both requirements without hacking the SDK, allowing cloud switching via config only.
 
 ---
 

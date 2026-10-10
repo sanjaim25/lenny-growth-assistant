@@ -1,6 +1,18 @@
+litellm_settings:
+  drop_params: true
+
 model_list:
+  - model_name: local-llama
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: http://host.docker.internal:11434
+      num_ctx: 8192
   - model_name: gpt-4o-mini
     litellm_params:
       model: ollama/llama3.2
       api_base: http://host.docker.internal:11434
       num_ctx: 8192
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20240620
+      api_key: os.environ/ANTHROPIC_API_KEY

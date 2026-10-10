@@ -24,6 +24,15 @@ ollama pull nomic-embed-text
    ```bash
    cp .env.example .env
    ```
+   
+   **Model Selection (Local vs Cloud):**
+   By default, the application runs fully locally using Ollama (`gpt-4o-mini` mapped to `llama3.2`).
+   To switch to a cloud model like Anthropic Claude, open `.env` and set:
+   ```bash
+   MODEL_ID=claude-3-5-sonnet
+   ANTHROPIC_API_KEY=your_key_here
+   ```
+   *Note: Switching back to local is as simple as reverting `MODEL_ID=gpt-4o-mini`.*
 3. **Start the stack:**
    ```bash
    docker compose up --build -d
