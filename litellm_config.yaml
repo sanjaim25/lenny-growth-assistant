@@ -16,3 +16,7 @@ model_list:
     litellm_params:
       model: anthropic/claude-3-5-sonnet-20240620
       api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: groq-llama
+    litellm_params:
+      model: groq/llama3-8b-8192
+      api_key: os.environ/GROQ_API_KEY

@@ -72,14 +72,23 @@ docker compose exec backend python cli_ingest.py
 Open [http://localhost:3000](http://localhost:3000). The API health is at [http://localhost:8000/api/health](http://localhost:8000/api/health).
 
 ## Local vs Cloud Model Configuration
-By default, the application uses local `llama3.2` mapped via LiteLLM as `gpt-4o-mini`. 
-To switch to a Cloud Provider:
+By default, the application uses local `llama3.2` mapped via LiteLLM as `gpt-4o-mini`. This is the **mandatory default and primary demo path**.
+
+To switch to a Cloud Provider (e.g., Groq or Anthropic):
 1. Open `.env`.
-2. Change `MODEL_ID=claude-3-5-sonnet`.
-3. Add `ANTHROPIC_API_KEY=your_actual_key`.
+2. To use Groq (Free Tier):
+   - Set `MODEL_ID=groq-llama`
+   - Add `GROQ_API_KEY=gsk_your_actual_key`
+3. To use Anthropic Claude:
+   - Set `MODEL_ID=claude-3-5-sonnet`
+   - Add `ANTHROPIC_API_KEY=sk-ant_your_actual_key`
 4. Restart backend: `docker compose restart backend agent-service`.
 
-**Missing-Key & Fallback Policy:** If cloud keys are missing or invalid, the system gracefully fails or relies on LiteLLM's error handling. Ensure `MODEL_ID` strictly matches the fallback local or cloud alias in `litellm_config.yaml`.
+**Verification:** You can verify which provider is active by checking the UI (which responds much faster with cloud models) or inspecting the LiteLLM container logs: `docker compose logs -f litellm` to see where the proxy is routing requests.
+
+**Missing-Key & Rate-Limit Policy:** 
+- If cloud keys are missing or invalid, the system gracefully fails or relies on LiteLLM's error handling, propagating clear errors to the UI.
+- **Groq Free-Tier:** If you hit rate limits (e.g., 429 Too Many Requests), LiteLLM will report the error. Switch back to local Ollama if limits persist. Ensure `MODEL_ID` strictly matches the fallback local or cloud alias in `litellm_config.yaml`.
 
 ## Key Capabilities
 - **RAG & Citations:** Ingests markdown chunks. Embeddings are `vector(768)`. Citations returned by LLM are mapped to sources in PostgreSQL and displayed as clickable tags.
