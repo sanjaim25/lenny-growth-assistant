@@ -757,7 +757,7 @@ export default function Home() {
             </button>
           </form>
           <p className="text-center text-xs mt-2.5" style={{ color: 'var(--text-tertiary)' }}>
-            Grounded in Lenny&apos;s Podcast transcripts · RAG Q&amp;A · Essays · HTML artifacts
+            Grounded in Lenny&apos;s Podcast transcripts · RAG Q&amp;A · Essays · HTML artifacts (UI v2)
           </p>
         </div>
       </div>
