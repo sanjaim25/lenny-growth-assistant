@@ -10,7 +10,7 @@ from app.models.pydantic_schemas import (
     SessionResponse, SessionCreate, SessionDetailResponse, ChatRequest, MessageResponse,
     EssayRequest, ArtifactResponse
 )
-from app.agent.llm import generate_chat_response, generate_essay_response
+from app.agent.llm import generate_chat_response, generate_essay_response, generate_html_response
 from app.models.schema import Session, Message, Artifact
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -131,6 +131,50 @@ async def generate_essay(session_id: UUID, essay_request: EssayRequest, db: Asyn
     artifact = Artifact(
         session_id=session_id,
         artifact_type="markdown",
+        title=ai_result["title"],
+        sources=ai_result["sources"],
+        word_count=ai_result["word_count"],
+        content=ai_result["content"]
+    )
+    db.add(artifact)
+    
+    await db.commit()
+    await db.refresh(artifact)
+    
+    return artifact
+
+@router.post("/{session_id}/html", response_model=ArtifactResponse)
+async def generate_html(session_id: UUID, chat_request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    # Verify session exists
+    result = await db.execute(select(Session).filter(Session.id == session_id))
+    db_session = result.scalar_one_or_none()
+    
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Save user message about generating HTML
+    user_message = Message(
+        session_id=session_id,
+        role="user",
+        content=chat_request.message
+    )
+    db.add(user_message)
+    
+    # Generate HTML via agent layer
+    ai_result = await generate_html_response(str(session_id), chat_request.message, db)
+    
+    assistant_message = Message(
+        session_id=session_id,
+        role="assistant",
+        content=f"I have generated the requested HTML artifact.",
+        sources=ai_result["sources"]
+    )
+    db.add(assistant_message)
+    
+    # Save the artifact
+    artifact = Artifact(
+        session_id=session_id,
+        artifact_type="html",
         title=ai_result["title"],
         sources=ai_result["sources"],
         word_count=ai_result["word_count"],

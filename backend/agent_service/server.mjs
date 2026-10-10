@@ -1,6 +1,6 @@
 import express from 'express';
-import { Agent } from '@earendil-works/pi-agent-core';
-import { getModel, stream } from '@earendil-works/pi-ai/compat';
+import { Agent } from '@mariozechner/pi-agent-core';
+import { getModel, stream } from '@mariozechner/pi-ai';
 
 const app = express();
 app.use(express.json());

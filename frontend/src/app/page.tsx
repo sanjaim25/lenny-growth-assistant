@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import ArtifactViewer from "../components/ArtifactViewer";
 import WriteEssayModal from "../components/WriteEssayModal";
-import { PenLine } from "lucide-react";
+import WriteHtmlModal from "../components/WriteHtmlModal";
+import { PenLine, Code } from "lucide-react";
 
 type Message = {
   id: string;
@@ -41,6 +42,7 @@ export default function Home() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [isEssayModalOpen, setIsEssayModalOpen] = useState(false);
+  const [isHtmlModalOpen, setIsHtmlModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -208,6 +210,38 @@ export default function Home() {
     }
   };
 
+  const handleGenerateHtml = async (prompt: string) => {
+    const sessionId = await getOrCreateSession();
+    if (!sessionId) return;
+
+    setMessages(prev => [...prev, {
+      id: "temp-" + Date.now(),
+      role: "user",
+      content: prompt,
+      created_at: new Date().toISOString()
+    }]);
+
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/sessions/${sessionId}/html`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+      
+      if (res.ok) {
+        const artifactData = await res.json();
+        await fetchSessionDetails(sessionId);
+        setActiveArtifact(artifactData);
+      }
+    } catch (err) {
+      console.error("Failed to generate HTML", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <main className="flex h-screen bg-[#0f1115] text-[#f8fafc] font-sans overflow-hidden">
       {/* Sidebar */}
@@ -227,6 +261,13 @@ export default function Home() {
               title="Write Essay"
             >
               <PenLine size={18} />
+            </button>
+            <button 
+              onClick={() => setIsHtmlModalOpen(true)}
+              className="bg-[#1e293b] hover:bg-[#334155] border border-[#3b82f6] text-[#3b82f6] font-medium py-2 px-3 rounded transition-colors"
+              title="Generate HTML UI"
+            >
+              <Code size={18} />
             </button>
           </div>
         </div>
@@ -383,6 +424,11 @@ export default function Home() {
         isOpen={isEssayModalOpen} 
         onClose={() => setIsEssayModalOpen(false)} 
         onSubmit={handleWriteEssay} 
+      />
+      <WriteHtmlModal 
+        isOpen={isHtmlModalOpen} 
+        onClose={() => setIsHtmlModalOpen(false)} 
+        onSubmit={handleGenerateHtml} 
       />
     </main>
   );

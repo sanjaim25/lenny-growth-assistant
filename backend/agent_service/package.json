@@ -2,7 +2,7 @@
   "name": "agent_service",
   "version": "1.0.0",
   "description": "",
-  "type": "module",
+  "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "test": "node test_smoke.mjs"
@@ -10,10 +10,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^1.1.0",
-    "@earendil-works/pi-ai": "^1.1.0",
+    "@mariozechner/pi-agent-core": "^0.73.1",
+    "@mariozechner/pi-ai": "^0.73.1",
     "body-parser": "^2.3.0",
     "express": "^5.2.1"
   }

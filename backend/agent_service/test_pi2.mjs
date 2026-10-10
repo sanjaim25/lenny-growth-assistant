@@ -1,4 +1,4 @@
-import * as agentCore from '@earendil-works/pi-agent-core';
-import * as piAi from '@earendil-works/pi-ai';
+import * as agentCore from '@mariozechner/pi-agent-core';
+import { getModel, stream } from '@mariozechner/pi-ai';
 
-console.log(piAi.createModels.toString());
+console.log(getModel('openai', 'gpt-4o-mini'));

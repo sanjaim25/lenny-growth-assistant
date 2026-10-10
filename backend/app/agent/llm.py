@@ -220,3 +220,98 @@ async def generate_essay_response(session_id: str, essay_request: Any, db: Async
         "word_count": word_count
     }
 
+async def generate_html_response(session_id: str, user_message: str, db: AsyncSession) -> Dict[str, Any]:
+    # 1. Fetch previous messages for multi-turn context
+    stmt = select(Message).filter(Message.session_id == session_id).order_by(Message.created_at)
+    result = await db.execute(stmt)
+    db_messages = result.scalars().all()
+    
+    # 2. Local RAG Retrieval
+    query = user_message
+    retrieved_chunks = await retrieve_relevant_chunks(query, db, top_k=4, similarity_threshold=0.35)
+    
+    sources = []
+    seen_urls = set()
+    for chunk in retrieved_chunks:
+        url = chunk.get('source_url', '')
+        title = chunk.get('episode_title')
+        if url and url not in seen_urls:
+            sources.append({
+                "type": "citation",
+                "episode_title": title or "Unknown Episode",
+                "source_url": url,
+                "similarity_score": chunk.get('similarity_score', 0)
+            })
+            seen_urls.add(url)
+            
+    context_text = "\n\n---\n\n".join([f"Title: {c['episode_title']}\nContent: {c['content']}" for c in retrieved_chunks])
+    
+    # 4. Format history
+    history = []
+    for msg in db_messages:
+        if msg.role in ["user", "assistant"]:
+            history.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+            
+    provider = "Pi Coding Agent Runtime (Node.js) via LiteLLM Ollama"
+    model = "llama3.2"
+    
+    system_prompt = (
+        "You are an expert web developer and growth assistant. "
+        "Your task is to create a complete, standalone HTML document with embedded CSS based on the user's request. "
+        "RULES:\n"
+        "1. DO NOT output any markdown blocks like ```html. Output raw HTML only.\n"
+        "2. Include complete <html>, <head>, and <body> tags.\n"
+        "3. Embed beautiful, readable CSS inside a <style> tag.\n"
+        "4. DO NOT write or include any JavaScript. No <script> tags or inline event handlers.\n"
+        "5. The content must be grounded in the provided context from Lenny's transcripts.\n"
+        "6. Make the layout look like a premium dashboard or report."
+    )
+    
+    try:
+        history_text = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in history])
+        full_query = f"Conversation History:\n{history_text}\n\nUser: {user_message}" if history else user_message
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                "http://agent-service:3001/synthesize",
+                json={
+                    "systemPrompt": system_prompt,
+                    "query": full_query,
+                    "context": context_text
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            final_text = data.get("answer", "No answer generated.")
+            
+            # Clean up markdown code blocks if the model ignored rule 1
+            final_text = final_text.strip()
+            if final_text.startswith("```html"):
+                final_text = final_text[7:]
+            if final_text.endswith("```"):
+                final_text = final_text[:-3]
+            final_text = final_text.strip()
+            
+    except Exception as e:
+        logger.error(f"Agent Service Error: {e}")
+        return {
+            "title": "Error generating HTML",
+            "content": f"<div>Error connecting to AI provider ({provider}): {e}</div>",
+            "sources": [{"provider": provider, "model": model, "error": str(e)}],
+            "word_count": 0
+        }
+        
+    sources.insert(0, {"type": "provider_info", "provider": provider, "model": model})
+    
+    title = f"HTML Document"
+    word_count = len(final_text.split())
+    
+    return {
+        "title": title,
+        "content": final_text,
+        "sources": sources,
+        "word_count": word_count
+    }
