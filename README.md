@@ -139,6 +139,3 @@ docker compose exec backend pytest -v
 - [ ] UI accessed at localhost:3000
 - [ ] Prompt answered with citations
 - [ ] Artifact generated in viewer
-
-## Demo Video
-**PENDING**: Video link will be added upon final submission.
