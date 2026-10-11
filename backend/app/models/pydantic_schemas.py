@@ -24,6 +24,9 @@ class SessionBase(BaseModel):
 class SessionCreate(SessionBase):
     pass
 
+class SessionUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
 class SessionResponse(SessionBase):
     id: UUID
     created_at: datetime

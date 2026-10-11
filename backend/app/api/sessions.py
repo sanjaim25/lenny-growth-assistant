@@ -7,7 +7,7 @@ from typing import List
 
 from app.database import get_db
 from app.models.pydantic_schemas import (
-    SessionResponse, SessionCreate, SessionDetailResponse, ChatRequest, MessageResponse,
+    SessionResponse, SessionCreate, SessionUpdate, SessionDetailResponse, ChatRequest, MessageResponse,
     EssayRequest, ArtifactResponse
 )
 from app.agent.llm import generate_chat_response, generate_essay_response, generate_html_response
@@ -65,6 +65,23 @@ async def delete_session(session_id: UUID, db: AsyncSession = Depends(get_db)):
     await db.delete(db_session)
     await db.commit()
     return None
+
+@router.patch("/{session_id}", response_model=SessionResponse)
+async def update_session(session_id: UUID, session_update: SessionUpdate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Session).filter(Session.id == session_id))
+    db_session = result.scalar_one_or_none()
+
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    cleaned_title = session_update.title.strip()
+    if not cleaned_title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    db_session.title = cleaned_title
+    await db.commit()
+    await db.refresh(db_session)
+    return db_session
 
 @router.post("/{session_id}/chat", response_model=MessageResponse)
 async def chat(session_id: UUID, chat_request: ChatRequest, db: AsyncSession = Depends(get_db)):

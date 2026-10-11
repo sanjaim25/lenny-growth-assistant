@@ -36,21 +36,27 @@ async def test_session_lifecycle():
         assert msg_data["role"] == "assistant"
         assert len(msg_data["content"]) > 0
         
-        # 4. Get the session details
+        # 4. Rename the session
+        rename_res = await ac.patch(f"/api/sessions/{session_id}", json={"title": "Renamed Chat"})
+        assert rename_res.status_code == 200
+        assert rename_res.json()["title"] == "Renamed Chat"
+
+        # 5. Get the session details and verify renamed title
         response = await ac.get(f"/api/sessions/{session_id}")
         assert response.status_code == 200
         session_detail = response.json()
+        assert session_detail["title"] == "Renamed Chat"
         assert len(session_detail["messages"]) == 2 # 1 user + 1 assistant
         
         user_msg = session_detail["messages"][0]
         assert user_msg["role"] == "user"
         assert user_msg["content"] == "Hello Lenny"
         
-        # 5. Delete the session
+        # 6. Delete the session
         response = await ac.delete(f"/api/sessions/{session_id}")
         assert response.status_code == 204
         
-        # 6. Verify deletion
+        # 7. Verify deletion
         response = await ac.get(f"/api/sessions/{session_id}")
         assert response.status_code == 404
 
@@ -85,3 +91,11 @@ async def test_error_cases():
         # 422 Invalid payload
         response = await ac.post("/api/sessions/00000000-0000-0000-0000-000000000000/chat", json={})
         assert response.status_code == 422
+
+        # 404 Rename non-existent session
+        response = await ac.patch("/api/sessions/00000000-0000-0000-0000-000000000000", json={"title": "Test"})
+        assert response.status_code == 404
+
+        # 422 Rename empty title
+        response = await ac.patch("/api/sessions/00000000-0000-0000-0000-000000000000", json={"title": ""})
+        assert response.status_code in [400, 422]

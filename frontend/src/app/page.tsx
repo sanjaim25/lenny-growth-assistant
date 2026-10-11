@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import ArtifactViewer from "../components/ArtifactViewer";
 import WriteEssayModal from "../components/WriteEssayModal";
 import WriteHtmlModal from "../components/WriteHtmlModal";
-import { PenLine, Code, Plus, Trash2, MessageSquare, Sparkles, Send, AlertCircle, FileText, LayoutDashboard } from "lucide-react";
+import { PenLine, Code, Plus, Trash2, MessageSquare, Sparkles, Send, AlertCircle, FileText, LayoutDashboard, Pencil } from "lucide-react";
 
 type Message = {
   id: string;
@@ -50,6 +50,9 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -155,6 +158,50 @@ export default function Home() {
       fetchSessions();
     } catch (err) {
       console.error("Failed to delete chat", err);
+    }
+  };
+
+  const handleStartRename = (session: Session, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingSessionId(session.id);
+    setEditingTitle(session.title);
+    setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }, 50);
+  };
+
+  const handleCancelRename = () => {
+    setEditingSessionId(null);
+    setEditingTitle("");
+  };
+
+  const handleSaveRename = async (sessionId: string) => {
+    const trimmed = editingTitle.trim();
+    if (!trimmed) {
+      setError("Chat title cannot be empty");
+      return;
+    }
+
+    // Optimistically update sidebar immediately
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: trimmed } : s));
+    setEditingSessionId(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: trimmed }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.detail || "Failed to update chat title.");
+        fetchSessions(); // Revert on failure
+      }
+    } catch (err) {
+      console.error("Failed to rename session", err);
+      setError("Network error: failed to update chat title.");
+      fetchSessions(); // Revert on failure
     }
   };
 
@@ -451,17 +498,56 @@ export default function Home() {
               }}
             >
               <MessageSquare size={14} className="flex-shrink-0" style={{ opacity: 0.6 }} />
-              <span className="flex-1 truncate text-sm">{session.title}</span>
-              <button
-                onClick={(e) => handleDeleteChat(session.id, e)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 p-1 rounded"
-                style={{ color: 'var(--text-tertiary)' }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
-                title="Delete Chat"
-              >
-                <Trash2 size={14} />
-              </button>
+              {editingSessionId === session.id ? (
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  value={editingTitle}
+                  onChange={e => setEditingTitle(e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  onKeyDown={e => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") {
+                      handleSaveRename(session.id);
+                    } else if (e.key === "Escape") {
+                      handleCancelRename();
+                    }
+                  }}
+                  onBlur={() => handleSaveRename(session.id)}
+                  className="flex-1 text-sm rounded px-1.5 py-0.5 outline-none"
+                  style={{
+                    background: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--accent)',
+                  }}
+                />
+              ) : (
+                <span className="flex-1 truncate text-sm">{session.title}</span>
+              )}
+              {editingSessionId !== session.id && (
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => handleStartRename(session, e)}
+                    className="p-1 rounded transition-colors"
+                    style={{ color: 'var(--text-tertiary)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+                    title="Rename Chat"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteChat(session.id, e)}
+                    className="p-1 rounded transition-colors"
+                    style={{ color: 'var(--text-tertiary)' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--error)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
+                    title="Delete Chat"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
           {sessions.length === 0 && (
