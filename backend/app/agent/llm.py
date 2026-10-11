@@ -142,9 +142,9 @@ async def generate_essay_response(session_id: str, essay_request: Any, db: Async
     model = "llama3.2"
     
     sections = [
-        "Part 1: Introduction and Central Argument. Target 400 words. Include a compelling opening hook and clear central argument.",
-        "Part 2: Deep Analysis and Evidence. Target 500 words. Provide specific actionable insights and synthesize the transcript evidence deeply.",
-        "Part 3: Conclusion and Outlook. Target 350 words. Summarize the insights and provide a strong conclusion."
+        "Part 1: Hook, Context, and Central Argument. Target 520 words. Include a compelling opening hook, the core tension or problem, a clear thesis statement, and why conventional approaches fail.",
+        "Part 2: Deep Analysis, Evidence, and Core Framework. Target 620 words. Detail 3-4 distinct actionable principles with markdown subheadings (##), thoroughly synthesizing the transcript evidence, concrete quotes, and metrics.",
+        "Part 3: Actionable Playbook, Conclusion, and Outlook. Target 460 words. Provide an actionable step-by-step takeaway framework for practitioners, summarize key lessons, and deliver a memorable closing forward outlook."
     ]
     
     final_text_parts = []
@@ -159,7 +159,8 @@ async def generate_essay_response(session_id: str, essay_request: Any, db: Async
                     f"2. Your current assignment is: {section_instruction}\n"
                     "3. NEVER fabricate or hallucinate information. ONLY use the provided context from podcast transcripts.\n"
                     "4. If the provided context does not contain sufficient information, your ENTIRE output MUST BE exactly the phrase 'Insufficient Evidence' and nothing else.\n"
-                    "5. Format the output in Markdown without introductory filler."
+                    "5. Format the output in Markdown without introductory filler.\n"
+                    "6. Provide comprehensive, substantive analysis with concrete quotes, frameworks, and practical examples from the transcripts to fully achieve the requested word count without filler or padding."
                 )
                 
                 # Add title only to first part
